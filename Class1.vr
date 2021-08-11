@@ -1,0 +1,113 @@
+﻿Using System
+Using System.Diagnostics
+Using System.Text.RegularExpressions
+Using ASNA.DataGateHelper
+Using CommandLineUtility
+Using ASNA.DataGateHelper
+
+BegClass Program
+
+    DclConst BLOCKING_FACTOR 500 Access(*Public) 
+
+    BegSr Main Shared(*Yes) Access(*Public) Attributes(System.STAThread())
+        DclSrParm args Type(*String) Rank(1)
+
+        DclFld CmdLine Type(CmdLineArgs) New()
+        DclFld cam Type(CmdArgManager)
+        DclFld result Type(CmdArgManager.ExitCode) 
+
+        cam = *New CmdArgManager(CmdLine, args, "Sum fields in a file")
+        
+        result = cam.ParseArgs()
+
+       If (result = CmdArgManager.ExitCode.HelpShown)
+            LeaveSr 
+        ElseIf (result <> CmdArgManager.ExitCode.Success)
+            Console.WriteLine('**ERROR**') 
+            Console.WriteLine(cam.ErrorMessage) 
+            LeaveSr 
+        EndIf 
+
+       (*New Summer()).Run(CmdLine)
+
+        Console.WriteLine('Press any key to continue...') 
+        Console.ReadKey()
+    EndSr
+EndClass
+
+BegClass Summer
+    DclDB DGDB 
+    DclArray Fields Type(*String) Rank(1) 
+
+    DclArray Sums Type(*Packed) Len(16,6) Dim(24) 
+    
+    // Instance the DataGateHelper class.
+    DclFld dgfr Type(DGFileReader) WithEvents(*Yes) 
+    
+    BegFunc Run Access(*Public) Type(*Integer4) 
+        DclSrParm CmdLine Type(CmdLineArgs) 
+
+        DclFld i Type(*Integer4) 
+        DGDB.DBName = CmdLine.Database
+
+
+        Fields = RegEx.Split(CmdLine.Fields, '\s*,\s*') 
+
+        Connect DGDB 
+
+        dgfr = *New DGFileReader(DGDB, 500)
+
+        dgfr.ReadEntireFile(CmdLine.Library, CmdLine.File) 
+
+        Disconnect DGDB 
+
+        Console.WriteLine(String.Format('MS to read all records with API: {0}', dgfr.ReadMilliseconds))
+
+        i = 0 
+        ForEach Field Type(*String)  Collection(Fields)
+            Console.WriteLine('Field [{0}] = {1:#,###.######}', Field, Sums[i])
+            i = i + 1 
+        EndFor 
+
+        LeaveSr dgfr.ReadMilliseconds
+    EndFunc 
+    
+    // AfterRowRead event handler. 
+    BegSr OnAfterRowRead Event(dgfr.AfterRowRead) 
+        DclSrParm Sender Type(*Object)
+        DclSrParm e Type(AfterRowReadArgs) 
+
+        DclFld i Type(*Integer4) 
+
+        // Properties passed in through the e parameter:
+        //   e.DataRow -- a System.Data.DataRow representing the row read.
+        //   e.FieldNames -- an array of field names in the DataRow.
+        //   e.CurrentRowCounter -- The current row number. 
+        //   e.TotalRowsCounter -- the total row numbers. 
+
+        // You could do anything here you need with the incoming DataRow. 
+        // In this case, we're just showing the values. 
+        i = 0 
+        ForEach Field Type(*String)  Collection(Fields)
+            Sums[i] = Sums[i] + Convert.ToDecimal(e.DataRow[Field])
+            i = i + 1 
+        EndFor 
+    EndSr
+EndClass
+
+BegClass CmdLineArgs Access(*Public) 
+
+    DclProp Database Type(*String) Access(*Public) +
+                         Attributes(CmdArg("--databasename", "-d", *True,  "Database Name"))
+
+    DclProp Library Type(*String)  Access(*Public) +
+                         Attributes(CmdArg("--library", "-l", *True, "Library name (or *LIBL if using a library list)"))
+
+    DclProp File  Type(*String) Access(*Public) +
+                         Attributes(CmdArg("--file", "-f", *True, "File name"))
+
+    DclProp Fields  Type(*String) Access(*Public) +
+                         Attributes(CmdArg("--fields", "-fs", *True, "Comma-separated list of field names to sum"))
+EndClass 
+
+         

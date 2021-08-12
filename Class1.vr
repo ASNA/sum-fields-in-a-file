@@ -16,7 +16,7 @@ BegClass Program
         DclFld cam Type(CmdArgManager)
         DclFld result Type(CmdArgManager.ExitCode) 
 
-        cam = *New CmdArgManager(CmdLine, args, "Sum fields in a file")
+        cam = *New CmdArgManager(CmdLine, args, "Sum up to 12 fields in a file")
         
         result = cam.ParseArgs()
 
@@ -28,7 +28,12 @@ BegClass Program
             LeaveSr 
         EndIf 
 
-       (*New Summer()).Run(CmdLine)
+        Try 
+            (*New Summer()).Run(CmdLine)
+        Catch ex Type(Exception) 
+            Console.WriteLine(ex.Message) 
+            LeaveSr 
+        EndTry 
 
         Console.WriteLine('Press any key to continue...') 
         Console.ReadKey()
@@ -39,7 +44,8 @@ BegClass Summer
     DclDB DGDB 
     DclArray Fields Type(*String) Rank(1) 
 
-    DclArray Sums Type(*Packed) Len(16,6) Dim(24) 
+    DclConst MAX_FIELDS 12
+    DclArray Sums Type(*Packed) Len(16,6) Dim(12) 
     
     // Instance the DataGateHelper class.
     DclFld dgfr Type(DGFileReader) WithEvents(*Yes) 
@@ -52,6 +58,10 @@ BegClass Summer
 
 
         Fields = RegEx.Split(CmdLine.Fields, '\s*,\s*') 
+        If Fields.Length > MAX_FIELDS
+            Throw *New ArgumentException(String.Format('{0} fields provided and {1} is the max allowed.', Fields.Length, MAX_FIELDS)) 
+        EndIf 
+
 
         Connect DGDB 
 

@@ -52,11 +52,19 @@
     <Folder Include="Properties\" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\..\..\cs\other\GetSQLServerResultSet\GetSQLServerResultSet\GetSQLServerResultSet.csproj">
+      <Name>GetSQLServerResultSet</Name>
+      <Project>{8d1abbd4-f23c-4ca4-aae2-3581e2883375}</Project>
+      <Private>True</Private>
+    </ProjectReference>
     <ProjectReference Include="..\..\ASNA.DataGateHelper\ASNA.DataGateHelper\ASNA.DataGateHelper.vrproj">
       <Name>ASNA.DataGateHelper</Name>
       <Project>{711734a5-13fa-4fda-8b51-ffb43c758147}</Project>
       <Private>True</Private>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="App.config" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath)\ASNA\VisualRPG\v11.2\ASNA.VisualRPG.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

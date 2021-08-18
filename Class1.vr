@@ -1,12 +1,15 @@
 ﻿Using System
 Using System.Diagnostics
+Using System.Text
+Using System.Collections.Generic
 Using System.Text.RegularExpressions
 Using ASNA.DataGateHelper
 Using CommandLineUtility
 Using ASNA.DataGateHelper
+Using SqlServer
+Using Logger
 
 BegClass Program
-
     DclConst BLOCKING_FACTOR 500 Access(*Public) 
 
     BegSr Main Shared(*Yes) Access(*Public) Attributes(System.STAThread())
@@ -35,33 +38,80 @@ BegClass Program
             LeaveSr 
         EndTry 
 
-        Console.WriteLine('Press any key to continue...') 
-        Console.ReadKey()
+//        Console.WriteLine('Press any key to continue...') 
+//        Console.ReadKey()
     EndSr
 EndClass
 
 BegClass Summer
     DclDB DGDB 
-    DclArray Fields Type(*String) Rank(1) 
+    //DclArray Sums Type(*Packed) Len(28,6) Rank(1) 
+    DclArray Sums Type(System.Decimal) Rank(1) 
 
-    DclConst MAX_FIELDS 12
-    DclArray Sums Type(*Packed) Len(16,6) Dim(12) 
+    DclFld SQLStatement Type(*String) 
+    DclFld FileName Type(*String)     
+    DclArray FieldNames Type(*String) Rank(1)
     
     // Instance the DataGateHelper class.
     DclFld dgfr Type(DGFileReader) WithEvents(*Yes) 
-    
-    BegFunc Run Access(*Public) Type(*Integer4) 
-        DclSrParm CmdLine Type(CmdLineArgs) 
+
+    DclArray SqlServerResults Type(Decimal) Rank(1) 
+
+    DclFld logger Type(SimpleLogger) New(*True)
+
+    DclFld SQLServerDB Type(*String) 
+
+    DclArray NumericFieldsList Type(*String) Rank(1) 
+
+    BegFunc GetSqlServerData  Type(Decimal) Rank(1)         
+        DclFld DatabaseName Type(*String) 
+        
+        databaseName = *This.SQLServerDB
+        SqlServerResults  = (*New ResultSets()).GetResults(databaseName, *this.SQLStatement, *This.Sums.Length) 
+
+        LeaveSr SqlServerResults
+    EndFunc 
+
+    BegSr CompareResults
+        DclSrParm ShowOnScreen Type(*Boolean) 
 
         DclFld i Type(*Integer4) 
+        DClFld Errors Type(*Boolean) 
+
+        Errors = *False 
+
+        For Index(i=0) To(*This.Sums.Length -1) 
+            If *This.Sums[i] <> *This.SqlServerResults[i]
+                Errors = *True 
+                logger.Error(String.Format("Field {0} from DG with value {1} does not equal value field SQL Server with value {2}", *This.NumericFieldsList[i], *This.Sums[i], *This.SqlServerResults[i]))
+
+                If ShowOnScreen
+                    Console.WriteLine("Field {0} from DG with value {1} does not equal value field SQL Server with value {2}", *This.NumericFieldsList[i], *This.Sums[i], *This.SqlServerResults[i])
+                EndIf 
+            EndIf 
+            If ShowOnScreen
+                Console.WriteLine("Field {0} from DG: {1} From SQL Server: {2}", *This.NumericFieldsList[i], *This.Sums[i], *This.SqlServerResults[i])
+            EndIf 
+        EndFor 
+
+        If Errors 
+            logger.Error(String.Format("File {0} has errors.", *THis.FileName))
+        Else 
+            logger.Info(String.Format("File {0} has been validated. All SQL Server numeric fields match DataGate numeric fields.", *This.FileName)) 
+
+            If ShowOnScreen
+                Console.WriteLine("All are equal")
+            EndIf 
+        EndIf         
+    EndSr
+    
+    BegSr Run Access(*Public)
+        DclSrParm CmdLine Type(CmdLineArgs) 
+
         DGDB.DBName = CmdLine.Database
 
-
-        Fields = RegEx.Split(CmdLine.Fields, '\s*,\s*') 
-        If Fields.Length > MAX_FIELDS
-            Throw *New ArgumentException(String.Format('{0} fields provided and {1} is the max allowed.', Fields.Length, MAX_FIELDS)) 
-        EndIf 
-
+        *This.FileName = CmdLine.File
+        *This.SQLServerDB = CmdLine.SQLServerDB
 
         Connect DGDB 
 
@@ -71,23 +121,55 @@ BegClass Summer
 
         Disconnect DGDB 
 
-        Console.WriteLine(String.Format('MS to read all records with API: {0}', dgfr.ReadMilliseconds))
+        *This.SqlServerResults = GetSqlServerData()
+        
+        CompareResults(CmdLine.ShowInfo)
+    EndSr
+
+    BegSr CreateSQLStatement 
+        DclSrParm e Type(AfterRowReadArgs) 
+        DclFld sb Type(StringBuilder) New()
+
+        DclFld SqlMask Type(*String) Inz("SELECT {0} FROM {1}")
+        DclFld FieldMask Type(*String) Inz("SUM([{0}]) as [{0}], ")  
+        DclFld FieldList Type(*String) 
+        DclFld i Type(*Integer4) 
+        DclFld FieldCount Type(*Integer4) 
+
+        DclFld DataType Type(*STring) 
+
+        DclFld NumericFieldsList Type(List(*Of String)) New() 
 
         i = 0 
-        ForEach Field Type(*String)  Collection(Fields)
-            Console.WriteLine('Field [{0}] = {1:#,###.######}', Field, Sums[i])
-            i = i + 1 
+        FieldCount = 0
+        ForEach FieldName Type(*String) Collection(e.FieldNames) 
+            DataType = e.FieldTypes[i]
+            If DataType.ToLower() = 'decimal' OR DataType.ToLower() = 'numeric'
+                sb.Append(String.Format(FieldMask, FieldName)) 
+                NumericFieldsList.Add(FieldName)
+                FieldCount = FieldCount + 1 
+            EndIf 
+            i = i + 1
         EndFor 
+        FieldList = Regex.Replace(sb.ToString(), '\s*,\s*$', " ")
 
-        LeaveSr dgfr.ReadMilliseconds
-    EndFunc 
+        *This.Sums = *New Decimal[FieldCount]
+        *This.SQLStatement = String.Format(SqlMask, FieldList, *This.FileName) 
+        *This.NumericFieldsList = NumericFieldsList.ToArray()
+    EndSr
     
     // AfterRowRead event handler. 
     BegSr OnAfterRowRead Event(dgfr.AfterRowRead) 
         DclSrParm Sender Type(*Object)
         DclSrParm e Type(AfterRowReadArgs) 
 
-        DclFld i Type(*Integer4) 
+        DclFld NumericFieldsIndex Type(*Integer4) 
+        DclFld AllFieldsIndex Type(*Integer4) 
+
+        If e.CurrentRowCounter = 1
+             CreateSqlStatement(e)
+             *this.FieldNames = e.FieldNames
+        EndIf 
 
         // Properties passed in through the e parameter:
         //   e.DataRow -- a System.Data.DataRow representing the row read.
@@ -95,15 +177,26 @@ BegClass Summer
         //   e.CurrentRowCounter -- The current row number. 
         //   e.TotalRowsCounter -- the total row numbers. 
 
-        // You could do anything here you need with the incoming DataRow. 
-        // In this case, we're just showing the values. 
-        i = 0 
-        ForEach Field Type(*String)  Collection(Fields)
-            Sums[i] = Sums[i] + Convert.ToDecimal(e.DataRow[Field])
-            i = i + 1 
+        DclFld x Type(*String) 
+
+        NumericFieldsIndex = 0 
+        AllFieldsIndex = 0 
+        ForEach Field Type(*String)  Collection(e.FieldNames)
+            x = e.FieldTypes[AllFieldsIndex]
+
+            If e.FieldTypes[AllFieldsIndex].ToLower()= 'decimal' OR e.FieldTypes[AllFieldsIndex].ToLower() = 'numeric'
+                Sums[NumericFieldsIndex] = Sums[NumericFieldsIndex] + Convert.ToDecimal(e.DataRow[Field])
+                NumericFieldsIndex = NumericFieldsIndex + 1 
+            EndIf 
+            AllFieldsIndex = AllFieldsIndex + 1
         EndFor 
     EndSr
 EndClass
+
+
+//select sum(jan), sum(feb), from cmsales 
+
+//select 'cmsales' as 'table', sum(jan) as jan, sum(feb) as feb from cmsales 
 
 BegClass CmdLineArgs Access(*Public) 
 
@@ -111,13 +204,16 @@ BegClass CmdLineArgs Access(*Public)
                          Attributes(CmdArg("--databasename", "-d", *True,  "Database Name"))
 
     DclProp Library Type(*String)  Access(*Public) +
-                         Attributes(CmdArg("--library", "-l", *True, "Library name (or *LIBL if using a library list)"))
+                         Attributes(CmdArg("--library", "-l", *True, "Library name"))
 
     DclProp File  Type(*String) Access(*Public) +
                          Attributes(CmdArg("--file", "-f", *True, "File name"))
 
-    DclProp Fields  Type(*String) Access(*Public) +
-                         Attributes(CmdArg("--fields", "-fs", *True, "Comma-separated list of field names to sum"))
+    DclProp SQLServerDB  Type(*String) Access(*Public) +
+                         Attributes(CmdArg("--sqlserverdb", "-sdb", *True, "SQL Server databasename"))
+
+    DclProp ShowInfo  Type(*Boolean) Access(*Public) +
+                         Attributes(CmdArg("--showinfo", "-s", *False, "Show result info"))
 EndClass 
 
          
